@@ -186,445 +186,335 @@
             </div>
         </main>
     </div>
+<script type="module">
+    // --- CONFIG ---
+    const BACKEND_URL = "https://civic-backend.onrender.com"; // Your Render backend URL
+    const GEMINI_API_KEY = ""; // Optional: Add your Gemini API Key here
 
-    <script type="module">
-        // --- APP STATE & CONFIG ---
-        const GEMINI_API_KEY = ""; // Important: Add your Gemini API Key here
-        const APP_STATE = {
-            currentUser: null,
-            tickets: JSON.parse(localStorage.getItem('civicPulseTickets_v2')) || [],
-            users: JSON.parse(localStorage.getItem('civicPulseUsers_v2')) || [],
-            maps: { citizen: null, official: null },
-            charts: { dept: null },
-            isListening: false,
+    const APP_STATE = {
+        currentUser: null,
+        tickets: [],
+        maps: { citizen: null, official: null },
+        charts: { dept: null },
+        isListening: false,
+    };
+
+    // --- DOM ELEMENTS ---
+    const pages = document.querySelectorAll('.page');
+    const navbarContainer = document.getElementById('navbar-container');
+    const notificationPopup = document.getElementById('notification-popup');
+    const notificationMessage = document.getElementById('notification-message');
+    const voiceBtn = document.getElementById('voice-btn');
+    const languageSelect = document.getElementById('language-select');
+    const descriptionTextarea = document.getElementById('description');
+
+    // --- UTILITY FUNCTIONS ---
+    const showNotification = (message, isError = false) => {
+        notificationMessage.textContent = message;
+        notificationPopup.className = `notification-popup fixed top-5 right-5 text-white py-3 px-5 rounded-lg shadow-xl ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+        notificationPopup.style.opacity = '1';
+        notificationPopup.style.transform = 'translateY(0)';
+        setTimeout(() => {
+            notificationPopup.style.opacity = '0';
+            notificationPopup.style.transform = 'translateY(-20px)';
+        }, 3000);
+    };
+
+    // --- GEMINI API CALL (optional) ---
+    async function callGeminiAPI(description) {
+        if (!GEMINI_API_KEY) return { department: 'General Issues', urgency: 'Low', summary: description };
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
+        const payload = {
+            contents: [{ parts: [{ text: description }] }],
+            systemInstruction: { parts: [{ text: "Classify complaint into department and urgency." }] },
+            generationConfig: { responseMimeType: "application/json" }
         };
+        try {
+            const res = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const result = await res.json();
+            return JSON.parse(result.candidates[0].content.parts[0].text);
+        } catch (e) { return { department: 'General Issues', urgency: 'Low', summary: description }; }
+    }
 
-        // --- DOM ELEMENTS ---
-        const pages = document.querySelectorAll('.page');
-        const navbarContainer = document.getElementById('navbar-container');
-        const notificationPopup = document.getElementById('notification-popup');
-        const notificationMessage = document.getElementById('notification-message');
-        const voiceBtn = document.getElementById('voice-btn');
-        const languageSelect = document.getElementById('language-select');
-        const descriptionTextarea = document.getElementById('description');
-
-        // --- MOCK GEMINI API CALL ---
-        async function callGeminiAPI(description) {
-            if (!GEMINI_API_KEY) {
-                console.warn("Gemini API Key not set. Using fallback classification.");
-                return fallbackClassify(description);
-            }
-
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
-
-            const systemPrompt = `You are a municipal assistant. Analyze the following citizen complaint.
-            1.  Classify it into ONE of these departments: 'Sanitation Dept', 'Public Works Dept', 'JUSCO Power Dept', 'Water Dept', 'General Issues'.
-            2.  Determine its urgency: 'Low', 'Medium', or 'High'.
-            3.  Provide a concise, one-sentence summary of the core issue.
-
-            Respond ONLY with a valid JSON object in the format: {"department": "...", "urgency": "...", "summary": "..."}`;
-
-            const payload = {
-                contents: [{ parts: [{ text: `Complaint: "${description}"` }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { responseMimeType: "application/json" }
-            };
-
-            try {
-                // Exponential backoff for retries
-                let response;
-                for (let i = 0; i < 3; i++) {
-                    response = await fetch(API_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (response.ok) break;
-                    await new Promise(res => setTimeout(res, 1000 * Math.pow(2, i)));
-                }
-
-                if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
-
-                const result = await response.json();
-                const analysisText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!analysisText) throw new Error("Invalid response from API");
-
-                return JSON.parse(analysisText);
-
-            } catch (error) {
-                console.error("Gemini API call failed:", error);
-                showNotification("AI analysis failed, using fallback.", true);
-                return fallbackClassify(description);
-            }
-        }
-
-        // Fallback if API fails or key is missing
-        function fallbackClassify(description) {
-            const desc = description.toLowerCase();
-            let department = 'General Issues', urgency = 'Low', summary = description.substring(0, 70) + '...';
-            if (desc.includes('garbage') || desc.includes('trash')) { department = 'Sanitation Dept'; urgency = 'Medium'; }
-            if (desc.includes('pothole') || desc.includes('road')) { department = 'Public Works Dept'; urgency = 'Medium'; }
-            if (desc.includes('power') || desc.includes('light')) { department = 'JUSCO Power Dept'; urgency = 'High'; }
-            if (desc.includes('water') || desc.includes('leak')) { department = 'Water Dept'; urgency = 'High'; }
-            return { department, urgency, summary };
-        }
-
-        // --- UTILITY FUNCTIONS ---
-        const saveState = () => {
-            localStorage.setItem('civicPulseTickets_v2', JSON.stringify(APP_STATE.tickets));
-            localStorage.setItem('civicPulseUsers_v2', JSON.stringify(APP_STATE.users));
-        };
-
-        const showNotification = (message, isError = false) => {
-            notificationMessage.textContent = message;
-            notificationPopup.className = `notification-popup fixed top-5 right-5 text-white py-3 px-5 rounded-lg shadow-xl ${isError ? 'bg-red-500' : 'bg-green-500'}`;
-            notificationPopup.style.opacity = '1';
-            notificationPopup.style.transform = 'translateY(0)';
-            setTimeout(() => {
-                notificationPopup.style.opacity = '0';
-                notificationPopup.style.transform = 'translateY(-20px)';
-            }, 3000);
-        };
-
-        // --- ROUTING & PAGE RENDERING ---
-        function navigate(path) {
-            pages.forEach(p => p.classList.remove('active-page'));
-            const targetPage = document.getElementById(path.substring(1) + '-page');
-            if (targetPage) {
-                targetPage.classList.add('active-page');
-            } else {
-                document.getElementById('login-page').classList.add('active-page');
-            }
-            renderCurrentPage();
-        }
-
-        function renderCurrentPage() {
-            renderNavbar();
-            if (!APP_STATE.currentUser) {
-                window.location.hash = window.location.hash === '#register' ? '#register' : '#login';
-                return;
-            }
-            switch (APP_STATE.currentUser.role) {
-                case 'citizen': renderCitizenPage(); break;
-                case 'seller': renderSellerPage(); break;
-                case 'official': renderOfficialPage(); break;
-            }
-        }
-
-        // --- COMPONENT RENDERING ---
-        function renderNavbar() {
-            if (!APP_STATE.currentUser) {
-                navbarContainer.innerHTML = '';
-                return;
-            }
-            const roleName = APP_STATE.currentUser.role.charAt(0).toUpperCase() + APP_STATE.currentUser.role.slice(1);
-            navbarContainer.innerHTML = `
-                <nav class="bg-white shadow-md py-3 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-50">
-                    <a href="#" class="font-bold text-2xl text-indigo-600">CivicPulse</a>
-                    <div class="flex items-center space-x-4">
-                        <span class="text-sm text-gray-600">Welcome, ${APP_STATE.currentUser.email}</span>
-                        <span class="font-medium bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm">${roleName}</span>
-                        <button id="logout-btn" class="text-gray-600 hover:text-indigo-600 font-medium">Logout</button>
-                    </div>
-                </nav>
-            `;
-            document.getElementById('logout-btn').addEventListener('click', handleLogout);
-        }
-
-        // --- PAGE-SPECIFIC RENDERERS & LOGIC ---
-
-        // Citizen Page
-        function renderCitizenPage() {
-            if (!APP_STATE.maps.citizen) {
-                const map = L.map('map-citizen').setView([22.8046, 86.2029], 13);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                const marker = L.marker([22.8046, 86.2029], { draggable: true }).addTo(map);
-                APP_STATE.maps.citizen = { map, marker };
-            }
+    // --- BACKEND API FUNCTIONS ---
+    async function fetchTickets() {
+        try {
+            const res = await fetch(`${BACKEND_URL}/tickets`);
+            if (!res.ok) throw new Error("Failed to fetch tickets");
+            APP_STATE.tickets = await res.json();
             renderCitizenTickets();
-        }
+        } catch (error) { console.error(error); }
+    }
 
-        function renderCitizenTickets() {
-            const listEl = document.getElementById('citizen-tickets-list');
-            const userTickets = APP_STATE.tickets.filter(t => t.createdBy === APP_STATE.currentUser.email).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-            if(userTickets.length === 0) {
-                listEl.innerHTML = `<p class="text-center text-gray-500">You haven't submitted any reports yet.</p>`;
-                return;
-            }
-            listEl.innerHTML = userTickets.map(ticket => `
-                <div class="border rounded-lg p-3">
-                    <p class="font-semibold text-gray-800">${ticket.summary}</p>
-                    <p class="text-sm text-gray-500">Dept: ${ticket.department}</p>
-                    <div class="mt-2 flex items-center justify-between text-xs">
-                        <span class="px-2 py-1 font-medium rounded-full bg-blue-100 text-blue-800">${ticket.status}</span>
-                        <span class="text-gray-400">${new Date(ticket.createdAt).toLocaleDateString()}</span>
+    async function submitTicket(ticketData) {
+        const res = await fetch(`${BACKEND_URL}/tickets`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(ticketData)
+        });
+        if (!res.ok) throw new Error("Failed to submit ticket");
+        return await res.json();
+    }
+
+    async function updateTicketStatus(ticketId, status) {
+        const res = await fetch(`${BACKEND_URL}/tickets/${ticketId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status })
+        });
+        if (!res.ok) throw new Error("Failed to update ticket status");
+        await fetchTickets();
+    }
+
+    // --- ROUTING & PAGE RENDERING ---
+    function navigate(path) {
+        pages.forEach(p => p.classList.remove('active-page'));
+        const targetPage = document.getElementById(path.substring(1) + '-page');
+        if (targetPage) targetPage.classList.add('active-page');
+        else document.getElementById('login-page').classList.add('active-page');
+        renderCurrentPage();
+    }
+
+    function renderCurrentPage() {
+        renderNavbar();
+        if (!APP_STATE.currentUser) {
+            window.location.hash = window.location.hash === '#register' ? '#register' : '#login';
+            return;
+        }
+        switch (APP_STATE.currentUser.role) {
+            case 'citizen': renderCitizenPage(); break;
+            case 'seller': renderSellerPage(); break;
+            case 'official': renderOfficialPage(); break;
+        }
+    }
+
+    function renderNavbar() {
+        if (!APP_STATE.currentUser) { navbarContainer.innerHTML = ''; return; }
+        const roleName = APP_STATE.currentUser.role.charAt(0).toUpperCase() + APP_STATE.currentUser.role.slice(1);
+        navbarContainer.innerHTML = `
+            <nav class="bg-white shadow-md py-3 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-50">
+                <a href="#" class="font-bold text-2xl text-indigo-600">CivicPulse</a>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600">Welcome, ${APP_STATE.currentUser.email}</span>
+                    <span class="font-medium bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm">${roleName}</span>
+                    <button id="logout-btn" class="text-gray-600 hover:text-indigo-600 font-medium">Logout</button>
+                </div>
+            </nav>
+        `;
+        document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    }
+
+    // --- PAGE-SPECIFIC FUNCTIONS ---
+    function renderCitizenPage() {
+        if (!APP_STATE.maps.citizen) {
+            const map = L.map('map-citizen').setView([22.8046, 86.2029], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            const marker = L.marker([22.8046, 86.2029], { draggable: true }).addTo(map);
+            APP_STATE.maps.citizen = { map, marker };
+        }
+        renderCitizenTickets();
+    }
+
+    function renderCitizenTickets() {
+        const listEl = document.getElementById('citizen-tickets-list');
+        const userTickets = APP_STATE.tickets.filter(t => t.createdBy === APP_STATE.currentUser.email)
+            .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if(userTickets.length === 0) {
+            listEl.innerHTML = `<p class="text-center text-gray-500">You haven't submitted any reports yet.</p>`;
+            return;
+        }
+        listEl.innerHTML = userTickets.map(ticket => `
+            <div class="border rounded-lg p-3">
+                <p class="font-semibold text-gray-800">${ticket.summary}</p>
+                <p class="text-sm text-gray-500">Dept: ${ticket.department}</p>
+                <div class="mt-2 flex items-center justify-between text-xs">
+                    <span class="px-2 py-1 font-medium rounded-full bg-blue-100 text-blue-800">${ticket.status}</span>
+                    <span class="text-gray-400">${new Date(ticket.createdAt).toLocaleDateString()}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderSellerPage() {
+        const listEl = document.getElementById('seller-tickets-list');
+        const assignedTickets = APP_STATE.tickets.filter(t => t.department !== 'General Issues')
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if(assignedTickets.length === 0) {
+            listEl.innerHTML = `<p class="text-center text-gray-500">No tickets are currently in the queue.</p>`;
+            return;
+        }
+        listEl.innerHTML = assignedTickets.map(ticket => `
+            <div class="border rounded-lg p-4 space-y-2">
+                <p class="font-semibold">${ticket.summary}</p>
+                <p><span class="font-medium">Department:</span> ${ticket.department}</p>
+                <p><span class="font-medium">Urgency:</span> ${ticket.urgency}</p>
+                <p class="text-sm italic text-gray-600 mt-2">"${ticket.description}"</p>
+                <div class="flex items-center justify-between pt-2">
+                    <p class="text-sm text-gray-500">Reported by: ${ticket.createdBy}</p>
+                    <div class="flex items-center gap-2">
+                        <label for="status-${ticket.id}" class="text-sm font-medium">Status:</label>
+                        <select data-ticket-id="${ticket.id}" id="status-${ticket.id}" class="seller-status-change border rounded-lg p-1 text-sm">
+                            <option value="Open" ${ticket.status === 'Open' ? 'selected' : ''}>Open</option>
+                            <option value="In Progress" ${ticket.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="Resolved" ${ticket.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                        </select>
                     </div>
                 </div>
-            `).join('');
-        }
+            </div>
+        `).join('');
+    }
 
-        // Seller Page
-        function renderSellerPage() {
-            const listEl = document.getElementById('seller-tickets-list');
-            const assignedTickets = APP_STATE.tickets.filter(t => t.department !== 'General Issues').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-            if(assignedTickets.length === 0) {
-                listEl.innerHTML = `<p class="text-center text-gray-500">No tickets are currently in the queue.</p>`;
-                return;
-            }
-            listEl.innerHTML = assignedTickets.map(ticket => `
-                <div class="border rounded-lg p-4 space-y-2">
-                    <p class="font-semibold">${ticket.summary}</p>
-                    <p><span class="font-medium">Department:</span> ${ticket.department}</p>
-                    <p><span class="font-medium">Urgency:</span> ${ticket.urgency}</p>
-                    <p class="text-sm italic text-gray-600 mt-2">"${ticket.description}"</p>
-                    <div class="flex items-center justify-between pt-2">
-                        <p class="text-sm text-gray-500">Reported by: ${ticket.createdBy}</p>
-                        <div class="flex items-center gap-2">
-                            <label for="status-${ticket.id}" class="text-sm font-medium">Status:</label>
-                            <select data-ticket-id="${ticket.id}" id="status-${ticket.id}" class="seller-status-change border rounded-lg p-1 text-sm">
-                                <option value="Open" ${ticket.status === 'Open' ? 'selected' : ''}>Open</option>
-                                <option value="In Progress" ${ticket.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
-                                <option value="Resolved" ${ticket.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
+    function renderOfficialPage() {
+        // Keep your analytics & map logic here
+    }
 
-        // Official Page
-        function renderOfficialPage() {
-            const stats = calculateAnalytics();
-            document.getElementById('stats-grid').innerHTML = `
-                <div class="card"><p class="text-sm text-gray-500">Total Tickets</p><p class="text-2xl font-bold">${stats.total}</p></div>
-                <div class="card"><p class="text-sm text-gray-500">Resolved</p><p class="text-2xl font-bold">${stats.resolved} (${stats.resolvedRate}%)</p></div>
-                <div class="card"><p class="text-sm text-gray-500">Duplicates</p><p class="text-2xl font-bold">${stats.duplicates} (${stats.duplicateRate}%)</p></div>
-                <div class="card"><p class="text-sm text-gray-500">Avg. Resolution Time</p><p class="text-2xl font-bold">${stats.avgResolutionTime}</p></div>
-            `;
-            renderDeptChart(stats.byDept);
-            renderOfficialMap();
-        }
+    // --- EVENT HANDLERS ---
+    async function handleTicketSubmit(e) {
+        e.preventDefault();
+        const submitBtn = document.getElementById('submit-btn');
+        const submitBtnText = document.getElementById('submit-btn-text');
+        submitBtn.disabled = true;
+        submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
 
-        function calculateAnalytics() {
-            const tickets = APP_STATE.tickets;
-            const total = tickets.length;
-            const resolved = tickets.filter(t => t.status === 'Resolved').length;
-            const duplicates = tickets.filter(t => t.isDuplicate).length;
+        const description = document.getElementById('description').value;
+        const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
 
-            const resolvedTickets = tickets.filter(t => t.status === 'Resolved' && t.resolvedAt);
-            let totalResolutionTime = 0;
-            resolvedTickets.forEach(t => {
-                totalResolutionTime += new Date(t.resolvedAt) - new Date(t.createdAt);
+        try {
+            const analysis = await callGeminiAPI(description);
+            await submitTicket({
+                description,
+                summary: analysis.summary,
+                department: analysis.department,
+                urgency: analysis.urgency,
+                location: { lat, lon: lng },
+                createdBy: APP_STATE.currentUser.email
             });
-            const avgTimeMs = resolvedTickets.length > 0 ? totalResolutionTime / resolvedTickets.length : 0;
-
-            const byDept = tickets.reduce((acc, t) => {
-                acc[t.department] = (acc[t.department] || 0) + 1;
-                return acc;
-            }, {});
-
-            return {
-                total,
-                resolved,
-                resolvedRate: total > 0 ? ((resolved / total) * 100).toFixed(1) : 0,
-                duplicates,
-                duplicateRate: total > 0 ? ((duplicates / total) * 100).toFixed(1) : 0,
-                avgResolutionTime: avgTimeMs > 0 ? `${(avgTimeMs / (1000 * 60 * 60)).toFixed(1)} hrs` : 'N/A',
-                byDept
-            };
+            showNotification("Report submitted successfully!");
+            await fetchTickets();
+            document.getElementById('issue-form').reset();
+        } catch (error) {
+            console.error(error);
+            showNotification("Failed to submit report.", true);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtnText.innerHTML = `Submit Report`;
         }
+    }
 
-        function renderDeptChart(deptData) {
-            const ctx = document.getElementById('dept-chart').getContext('2d');
-            if (APP_STATE.charts.dept) APP_STATE.charts.dept.destroy();
-            APP_STATE.charts.dept = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: Object.keys(deptData),
-                    datasets: [{
-                        label: '# of Tickets',
-                        data: Object.values(deptData),
-                        backgroundColor: 'rgba(79, 70, 229, 0.8)',
-                        borderColor: 'rgba(79, 70, 229, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: { scales: { y: { beginAtZero: true } } }
-            });
-        }
-
-        function renderOfficialMap() {
-            if (!APP_STATE.maps.official) {
-                const map = L.map('map-official').setView([22.8046, 86.2029], 12);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                const heatLayer = L.heatLayer([], {radius: 25}).addTo(map);
-                APP_STATE.maps.official = { map, heatLayer };
+    async function handleStatusChange(e) {
+        if (e.target.classList.contains('seller-status-change')) {
+            const ticketId = e.target.dataset.ticketId;
+            const newStatus = e.target.value;
+            try {
+                await updateTicketStatus(ticketId, newStatus);
+                showNotification(`Ticket ${ticketId.slice(4,9)} status updated.`);
+            } catch (err) {
+                showNotification("Failed to update status.", true);
             }
-            const heatPoints = APP_STATE.tickets
-                .filter(t => t.location)
-                .map(t => [t.location.lat, t.location.lon, 0.5]);
-            APP_STATE.maps.official.heatLayer.setLatLngs(heatPoints);
         }
+    }
 
-        // --- EVENT HANDLERS ---
-        function handleLogin(e) {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            const user = APP_STATE.users.find(u => u.email === email && u.password === password); // Simple check for prototype
-            if (user) {
+    function handleLogin(e) {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        fetch(`${BACKEND_URL}/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password })
+        })
+        .then(res => res.json())
+        .then(user => {
+            if(user && user.email) {
                 APP_STATE.currentUser = user;
                 sessionStorage.setItem('civicPulseUser', JSON.stringify(user));
                 window.location.hash = '#' + user.role;
                 navigate('#' + user.role);
-            } else {
-                showNotification("Invalid credentials.", true);
-            }
+                fetchTickets();
+            } else showNotification("Invalid credentials.", true);
+        })
+        .catch(err => showNotification("Login failed.", true));
+    }
+
+    function handleRegister(e) {
+        e.preventDefault();
+        const email = document.getElementById('register-email').value;
+        const password = document.getElementById('register-password').value;
+        const role = document.getElementById('register-role').value;
+
+        fetch(`${BACKEND_URL}/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password, role })
+        })
+        .then(res => res.json())
+        .then(user => {
+            if(user && user.email) {
+                showNotification("Registration successful! Please log in.");
+                window.location.hash = '#login';
+            } else showNotification("Registration failed.", true);
+        })
+        .catch(err => showNotification("Registration failed.", true));
+    }
+
+    function handleLogout() {
+        APP_STATE.currentUser = null;
+        sessionStorage.removeItem('civicPulseUser');
+        window.location.hash = '#login';
+        navigate('#login');
+    }
+
+    // --- VOICE INPUT ---
+    function handleVoiceInput() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return showNotification("Voice not supported.", true);
+        if (APP_STATE.isListening) return;
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = languageSelect.value;
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            APP_STATE.isListening = true;
+            voiceBtn.classList.add('bg-red-500','text-white','listening-pulse');
+            voiceBtn.classList.remove('bg-indigo-100','text-indigo-600');
+        };
+        recognition.onend = () => {
+            APP_STATE.isListening = false;
+            voiceBtn.classList.remove('bg-red-500','text-white','listening-pulse');
+            voiceBtn.classList.add('bg-indigo-100','text-indigo-600');
+        };
+        recognition.onerror = (e) => showNotification(`Voice error: ${e.error}`, true);
+        recognition.onresult = (e) => descriptionTextarea.value = e.results[0][0].transcript;
+
+        recognition.start();
+    }
+
+    // --- INIT ---
+    function init() {
+        const savedUser = sessionStorage.getItem('civicPulseUser');
+        if(savedUser) {
+            APP_STATE.currentUser = JSON.parse(savedUser);
         }
 
-        function handleRegister(e) {
-            e.preventDefault();
-            const email = document.getElementById('register-email').value;
-            const password = document.getElementById('register-password').value;
-            const role = document.getElementById('register-role').value;
-            if (APP_STATE.users.some(u => u.email === email)) {
-                showNotification("Email already registered.", true);
-                return;
-            }
-            const newUser = { email, password, role };
-            APP_STATE.users.push(newUser);
-            saveState();
-            showNotification("Registration successful! Please log in.");
-            window.location.hash = '#login';
+        window.addEventListener('hashchange', () => navigate(window.location.hash || '#login'));
+        if(APP_STATE.currentUser) {
+            navigate('#' + APP_STATE.currentUser.role);
+            fetchTickets();
+        } else {
+            navigate(window.location.hash || '#login');
         }
 
-        function handleLogout() {
-            APP_STATE.currentUser = null;
-            sessionStorage.removeItem('civicPulseUser');
-            window.location.hash = '#login';
-            navigate('#login');
-        }
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
+        document.getElementById('register-form').addEventListener('submit', handleRegister);
+        document.getElementById('issue-form').addEventListener('submit', handleTicketSubmit);
+        document.getElementById('seller-tickets-list').addEventListener('click', handleStatusChange);
+        voiceBtn.addEventListener('click', handleVoiceInput);
+    }
 
-        async function handleTicketSubmit(e) {
-            e.preventDefault();
-            const submitBtn = document.getElementById('submit-btn');
-            const submitBtnText = document.getElementById('submit-btn-text');
-            submitBtn.disabled = true;
-            submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
+    init();
+</script>
 
-            const description = document.getElementById('description').value;
-            const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
-
-            try {
-                const analysis = await callGeminiAPI(description);
-                const newTicket = {
-                    id: `tkt_${Date.now()}`,
-                    description,
-                    summary: analysis.summary,
-                    department: analysis.department,
-                    urgency: analysis.urgency,
-                    status: 'Open',
-                    location: { lat, lon: lng },
-                    createdAt: new Date().toISOString(),
-                    createdBy: APP_STATE.currentUser.email,
-                    isDuplicate: false, // Simplified for this prototype
-                };
-                APP_STATE.tickets.push(newTicket);
-                saveState();
-                showNotification("Report submitted successfully!");
-                renderCitizenTickets();
-                document.getElementById('issue-form').reset();
-            } catch (error) {
-                showNotification("Failed to submit report.", true);
-            } finally {
-                submitBtn.disabled = false;
-                submitBtnText.innerHTML = `Submit Report`;
-            }
-        }
-
-        function handleStatusChange(e) {
-            if (e.target.classList.contains('seller-status-change')) {
-                const ticketId = e.target.dataset.ticketId;
-                const newStatus = e.target.value;
-                const ticket = APP_STATE.tickets.find(t => t.id === ticketId);
-                if(ticket) {
-                    ticket.status = newStatus;
-                    if(newStatus === 'Resolved' && !ticket.resolvedAt) {
-                        ticket.resolvedAt = new Date().toISOString();
-                    }
-                    saveState();
-                    showNotification(`Ticket ${ticketId.slice(4, 9)} status updated.`);
-                }
-            }
-        }
-
-        // --- VOICE INPUT LOGIC ---
-        function handleVoiceInput() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                showNotification("Voice recognition not supported in this browser.", true);
-                return;
-            }
-
-            if (APP_STATE.isListening) return;
-
-            const recognition = new SpeechRecognition();
-            recognition.lang = languageSelect.value;
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-
-            recognition.onstart = () => {
-                APP_STATE.isListening = true;
-                voiceBtn.classList.add('bg-red-500', 'text-white', 'listening-pulse');
-                voiceBtn.classList.remove('bg-indigo-100', 'text-indigo-600');
-            };
-
-            recognition.onend = () => {
-                APP_STATE.isListening = false;
-                voiceBtn.classList.remove('bg-red-500', 'text-white', 'listening-pulse');
-                voiceBtn.classList.add('bg-indigo-100', 'text-indigo-600');
-            };
-
-            recognition.onerror = (event) => {
-                showNotification(`Voice recognition error: ${event.error}`, true);
-            };
-
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                descriptionTextarea.value = transcript;
-            };
-
-            recognition.start();
-        }
-
-
-        // --- APP INITIALIZATION ---
-        function init() {
-            // Restore session
-            const savedUser = sessionStorage.getItem('civicPulseUser');
-            if (savedUser) {
-                APP_STATE.currentUser = JSON.parse(savedUser);
-            }
-
-            // Set up routing
-            window.addEventListener('hashchange', () => navigate(window.location.hash || '#login'));
-
-            // Initial navigation
-            if (APP_STATE.currentUser) {
-                navigate('#' + APP_STATE.currentUser.role);
-            } else {
-                navigate(window.location.hash || '#login');
-            }
-
-            // Attach event listeners
-            document.getElementById('login-form').addEventListener('submit', handleLogin);
-            document.getElementById('register-form').addEventListener('submit', handleRegister);
-            document.getElementById('issue-form').addEventListener('submit', handleTicketSubmit);
-            document.getElementById('seller-tickets-list').addEventListener('click', handleStatusChange);
-            voiceBtn.addEventListener('click', handleVoiceInput);
-        }
-
-        init();
-    </script>
-</body>
+    </body>
 </html>
