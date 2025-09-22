@@ -286,6 +286,16 @@
                 notificationPopup.style.transform = 'translateY(-20px)';
             }, 3000);
         };
+async function fetchTicketsFromBackend() {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/tickets`);
+        const tickets = await response.json();
+        APP_STATE.tickets = tickets;
+        renderCitizenTickets();
+    } catch (err) {
+        console.error("Failed to fetch tickets:", err);
+    }
+}
 
         // --- ROUTING & PAGE RENDERING ---
         function navigate(path) {
@@ -468,20 +478,53 @@
         }
 
         // --- EVENT HANDLERS ---
-        function handleLogin(e) {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            const user = APP_STATE.users.find(u => u.email === email && u.password === password); // Simple check for prototype
-            if (user) {
-                APP_STATE.currentUser = user;
-                sessionStorage.setItem('civicPulseUser', JSON.stringify(user));
-                window.location.hash = '#' + user.role;
-                navigate('#' + user.role);
-            } else {
-                showNotification("Invalid credentials.", true);
-            }
-        }
+      async function handleTicketSubmit(e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submit-btn');
+    const submitBtnText = document.getElementById('submit-btn-text');
+    submitBtn.disabled = true;
+    submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
+
+    const description = document.getElementById('description').value;
+    const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
+
+    try {
+        const analysis = await callGeminiAPI(description);
+        const newTicket = {
+            description,
+            summary: analysis.summary,
+            department: analysis.department,
+            urgency: analysis.urgency,
+            status: 'Open',
+            location: { lat, lon: lng },
+            createdBy: APP_STATE.currentUser.email,
+        };
+
+        // --- STEP 3: Save to backend ---
+        const response = await fetch(`${BACKEND_URL}/api/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: JSON.stringify(newTicket) })
+        });
+
+        if (!response.ok) throw new Error("Failed to save ticket");
+
+        showNotification("Report submitted successfully!");
+        document.getElementById('issue-form').reset();
+
+        // Refresh tickets from backend
+        await fetchTicketsFromBackend();
+
+    } catch (error) {
+        showNotification("Failed to submit report.", true);
+        console.error(error);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtnText.innerHTML = `Submit Report`;
+    }
+}
+
+
 
         function handleRegister(e) {
             e.preventDefault();
@@ -506,42 +549,6 @@
             navigate('#login');
         }
 
-        async function handleTicketSubmit(e) {
-            e.preventDefault();
-            const submitBtn = document.getElementById('submit-btn');
-            const submitBtnText = document.getElementById('submit-btn-text');
-            submitBtn.disabled = true;
-            submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
-
-            const description = document.getElementById('description').value;
-            const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
-
-            try {
-                const analysis = await callGeminiAPI(description);
-                const newTicket = {
-                    id: `tkt_${Date.now()}`,
-                    description,
-                    summary: analysis.summary,
-                    department: analysis.department,
-                    urgency: analysis.urgency,
-                    status: 'Open',
-                    location: { lat, lon: lng },
-                    createdAt: new Date().toISOString(),
-                    createdBy: APP_STATE.currentUser.email,
-                    isDuplicate: false, // Simplified for this prototype
-                };
-                APP_STATE.tickets.push(newTicket);
-                saveState();
-                showNotification("Report submitted successfully!");
-                renderCitizenTickets();
-                document.getElementById('issue-form').reset();
-            } catch (error) {
-                showNotification("Failed to submit report.", true);
-            } finally {
-                submitBtn.disabled = false;
-                submitBtnText.innerHTML = `Submit Report`;
-            }
-        }
 
         function handleStatusChange(e) {
             if (e.target.classList.contains('seller-status-change')) {
