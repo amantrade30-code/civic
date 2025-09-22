@@ -1,6 +1,3 @@
-from IPython.display import HTML
-
-html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -79,7 +76,7 @@ html_content = """
 
             <!-- Register Page -->
             <div id="register-page" class="page">
-                 <div class="flex items-center justify-center min-h-screen bg-gray-100">
+                <div class="flex items-center justify-center min-h-screen bg-gray-100">
                     <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg">
                         <h2 class="text-3xl font-bold text-center text-gray-800">Create an Account</h2>
                         <form id="register-form" class="space-y-6">
@@ -108,7 +105,7 @@ html_content = """
 
             <!-- Citizen Page -->
             <div id="citizen-page" class="page">
-                 <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-5 gap-8">
                     <div class="lg:col-span-3">
                         <div class="card">
                             <h2 class="text-2xl font-bold text-gray-800 border-b pb-3 mb-6">Post a City Issue</h2>
@@ -138,7 +135,7 @@ html_content = """
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700">Set Location</label>
-                                         <div id="map-citizen" class="mt-1"></div>
+                                        <div id="map-citizen" class="mt-1"></div>
                                     </div>
                                 </div>
                                 <div class="flex justify-end pt-2">
@@ -170,7 +167,7 @@ html_content = """
 
             <!-- Official/Admin Page -->
             <div id="official-page" class="page">
-                 <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
                     <h2 class="text-3xl font-bold text-gray-900 mb-6">Administrator Dashboard</h2>
                     <!-- Stats Cards -->
                     <div id="stats-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
@@ -192,6 +189,7 @@ html_content = """
 
     <script type="module">
         // --- APP STATE & CONFIG ---
+         const BACKEND_URL = "https://civic-backend.onrender.com"; // Your Render backend URL
         const GEMINI_API_KEY = ""; // Important: Add your Gemini API Key here
         const APP_STATE = {
             currentUser: null,
@@ -288,6 +286,16 @@ html_content = """
                 notificationPopup.style.transform = 'translateY(-20px)';
             }, 3000);
         };
+async function fetchTicketsFromBackend() {
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/tickets`);
+        const tickets = await response.json();
+        APP_STATE.tickets = tickets;
+        renderCitizenTickets();
+    } catch (err) {
+        console.error("Failed to fetch tickets:", err);
+    }
+}
 
         // --- ROUTING & PAGE RENDERING ---
         function navigate(path) {
@@ -304,8 +312,8 @@ html_content = """
         function renderCurrentPage() {
             renderNavbar();
             if (!APP_STATE.currentUser) {
-                 window.location.hash = window.location.hash === '#register' ? '#register' : '#login';
-                 return;
+                window.location.hash = window.location.hash === '#register' ? '#register' : '#login';
+                return;
             }
             switch (APP_STATE.currentUser.role) {
                 case 'citizen': renderCitizenPage(); break;
@@ -351,8 +359,8 @@ html_content = """
             const listEl = document.getElementById('citizen-tickets-list');
             const userTickets = APP_STATE.tickets.filter(t => t.createdBy === APP_STATE.currentUser.email).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
             if(userTickets.length === 0) {
-                 listEl.innerHTML = `<p class="text-center text-gray-500">You haven't submitted any reports yet.</p>`;
-                 return;
+                listEl.innerHTML = `<p class="text-center text-gray-500">You haven't submitted any reports yet.</p>`;
+                return;
             }
             listEl.innerHTML = userTickets.map(ticket => `
                 <div class="border rounded-lg p-3">
@@ -369,10 +377,10 @@ html_content = """
         // Seller Page
         function renderSellerPage() {
             const listEl = document.getElementById('seller-tickets-list');
-             const assignedTickets = APP_STATE.tickets.filter(t => t.department !== 'General Issues').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-             if(assignedTickets.length === 0) {
-                 listEl.innerHTML = `<p class="text-center text-gray-500">No tickets are currently in the queue.</p>`;
-                 return;
+            const assignedTickets = APP_STATE.tickets.filter(t => t.department !== 'General Issues').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            if(assignedTickets.length === 0) {
+                listEl.innerHTML = `<p class="text-center text-gray-500">No tickets are currently in the queue.</p>`;
+                return;
             }
             listEl.innerHTML = assignedTickets.map(ticket => `
                 <div class="border rounded-lg p-4 space-y-2">
@@ -381,15 +389,15 @@ html_content = """
                     <p><span class="font-medium">Urgency:</span> ${ticket.urgency}</p>
                     <p class="text-sm italic text-gray-600 mt-2">"${ticket.description}"</p>
                     <div class="flex items-center justify-between pt-2">
-                         <p class="text-sm text-gray-500">Reported by: ${ticket.createdBy}</p>
-                         <div class="flex items-center gap-2">
-                             <label for="status-${ticket.id}" class="text-sm font-medium">Status:</label>
-                             <select data-ticket-id="${ticket.id}" id="status-${ticket.id}" class="seller-status-change border rounded-lg p-1 text-sm">
-                                 <option value="Open" ${ticket.status === 'Open' ? 'selected' : ''}>Open</option>
-                                 <option value="In Progress" ${ticket.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
-                                 <option value="Resolved" ${ticket.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
-                             </select>
-                         </div>
+                        <p class="text-sm text-gray-500">Reported by: ${ticket.createdBy}</p>
+                        <div class="flex items-center gap-2">
+                            <label for="status-${ticket.id}" class="text-sm font-medium">Status:</label>
+                            <select data-ticket-id="${ticket.id}" id="status-${ticket.id}" class="seller-status-change border rounded-lg p-1 text-sm">
+                                <option value="Open" ${ticket.status === 'Open' ? 'selected' : ''}>Open</option>
+                                <option value="In Progress" ${ticket.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                                <option value="Resolved" ${ticket.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -458,32 +466,65 @@ html_content = """
 
         function renderOfficialMap() {
             if (!APP_STATE.maps.official) {
-                 const map = L.map('map-official').setView([22.8046, 86.2029], 12);
-                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-                 const heatLayer = L.heatLayer([], {radius: 25}).addTo(map);
-                 APP_STATE.maps.official = { map, heatLayer };
+                const map = L.map('map-official').setView([22.8046, 86.2029], 12);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                const heatLayer = L.heatLayer([], {radius: 25}).addTo(map);
+                APP_STATE.maps.official = { map, heatLayer };
             }
-             const heatPoints = APP_STATE.tickets
+            const heatPoints = APP_STATE.tickets
                 .filter(t => t.location)
                 .map(t => [t.location.lat, t.location.lon, 0.5]);
             APP_STATE.maps.official.heatLayer.setLatLngs(heatPoints);
         }
 
         // --- EVENT HANDLERS ---
-        function handleLogin(e) {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            const user = APP_STATE.users.find(u => u.email === email && u.password === password); // Simple check for prototype
-            if (user) {
-                APP_STATE.currentUser = user;
-                sessionStorage.setItem('civicPulseUser', JSON.stringify(user));
-                window.location.hash = '#' + user.role;
-                navigate('#' + user.role);
-            } else {
-                showNotification("Invalid credentials.", true);
-            }
-        }
+      async function handleTicketSubmit(e) {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submit-btn');
+    const submitBtnText = document.getElementById('submit-btn-text');
+    submitBtn.disabled = true;
+    submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
+
+    const description = document.getElementById('description').value;
+    const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
+
+    try {
+        const analysis = await callGeminiAPI(description);
+        const newTicket = {
+            description,
+            summary: analysis.summary,
+            department: analysis.department,
+            urgency: analysis.urgency,
+            status: 'Open',
+            location: { lat, lon: lng },
+            createdBy: APP_STATE.currentUser.email,
+        };
+
+        // --- STEP 3: Save to backend ---
+        const response = await fetch(`${BACKEND_URL}/api/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: JSON.stringify(newTicket) })
+        });
+
+        if (!response.ok) throw new Error("Failed to save ticket");
+
+        showNotification("Report submitted successfully!");
+        document.getElementById('issue-form').reset();
+
+        // Refresh tickets from backend
+        await fetchTicketsFromBackend();
+
+    } catch (error) {
+        showNotification("Failed to submit report.", true);
+        console.error(error);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtnText.innerHTML = `Submit Report`;
+    }
+}
+
+
 
         function handleRegister(e) {
             e.preventDefault();
@@ -508,42 +549,6 @@ html_content = """
             navigate('#login');
         }
 
-        async function handleTicketSubmit(e) {
-            e.preventDefault();
-            const submitBtn = document.getElementById('submit-btn');
-            const submitBtnText = document.getElementById('submit-btn-text');
-            submitBtn.disabled = true;
-            submitBtnText.innerHTML = `<div class="loader mr-2"></div> Analyzing...`;
-
-            const description = document.getElementById('description').value;
-            const { lat, lng } = APP_STATE.maps.citizen.marker.getLatLng();
-
-            try {
-                const analysis = await callGeminiAPI(description);
-                const newTicket = {
-                    id: `tkt_${Date.now()}`,
-                    description,
-                    summary: analysis.summary,
-                    department: analysis.department,
-                    urgency: analysis.urgency,
-                    status: 'Open',
-                    location: { lat, lon: lng },
-                    createdAt: new Date().toISOString(),
-                    createdBy: APP_STATE.currentUser.email,
-                    isDuplicate: false, // Simplified for this prototype
-                };
-                APP_STATE.tickets.push(newTicket);
-                saveState();
-                showNotification("Report submitted successfully!");
-                renderCitizenTickets();
-                document.getElementById('issue-form').reset();
-            } catch (error) {
-                 showNotification("Failed to submit report.", true);
-            } finally {
-                 submitBtn.disabled = false;
-                 submitBtnText.innerHTML = `Submit Report`;
-            }
-        }
 
         function handleStatusChange(e) {
             if (e.target.classList.contains('seller-status-change')) {
@@ -631,6 +636,3 @@ html_content = """
     </script>
 </body>
 </html>
-"""
-
-display(HTML(html_content))
